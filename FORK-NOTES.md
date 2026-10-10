@@ -4,7 +4,7 @@ Personal enhancement fork of [deepseek-ai/deepseek-harness](https://github.com/d
 
 ## Enhancement 1: Agent Teams mailbox timeline
 
-Status: implemented (branch `enhance/mailbox-timeline`); typecheck/lint/build verification in progress
+Status: implemented and verified (branch `enhance/mailbox-timeline`); not yet pushed to a personal GitHub remote
 
 ### Problem
 
