@@ -1,6 +1,6 @@
 # FORK-NOTES
 
-Personal enhancement fork of [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (upstream `master`, base commit `d7432673`). Upstream currently does not accept external PRs, so enhancements are developed and documented here.
+Personal enhancement fork of [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (upstream `master`, forked 2026-10-10). Upstream currently does not accept external PRs, so enhancements are developed and documented here.
 
 ## Enhancement 1: Agent Teams mailbox timeline
 
@@ -19,7 +19,7 @@ Upstream `0.2.1` moved Team messaging to the direct-inbox model: `send_message` 
    Appended **after** inbox acceptance in `sendAdmitted`; a failed append only logs a warning and never fails the already-accepted send (best-effort display record; a crash in the window can miss an entry).
 2. **Projection.** `TeamState` gains a `sent` collection; `apply` recognizes the record (validates schema, `teamId`, `version`). The wire view gains `timeline` — the last `timelineLimit` records in log order. The view-cache key now includes the `sent` reference, so each accepted send republishes the view (bounded payload; trade-off documented below).
 3. **Config.** New validated fields `timelineLimit` (default 64) and `timelineContentBytes` (default 1024) on the agent-team `Config`.
-4. **Web panel.** A "Messages" section renders sender → target, delivery state, and truncated content. Locale-owned copy in `zh`/`en`.
+4. **Web panel.** A "Messages" section renders the sender → target route and the bounded content summary with a truncated tag. Locale-owned copy in `zh`/`en`.
 5. **Format compatibility.** `SESSION_FORMAT_VERSION` stays 4: the record is ignorable, so builds that do not know the type keep and skip it; everything else in the log is unaffected.
 
 ### Trade-offs (documented in package READMEs)

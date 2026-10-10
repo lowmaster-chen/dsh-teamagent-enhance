@@ -444,6 +444,16 @@
     },
     {
       "doc": "docs/subsystems/agent-team.md",
+      "symbol": "TeamMessageSentSnapshot",
+      "source": "packages/experimental/agent-team/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/agent-team.md",
+      "symbol": "TeamTimelineEntry",
+      "source": "packages/experimental/agent-team/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/agent-team.md",
       "symbol": "TeamProjection",
       "source": "packages/experimental/agent-team/src/types.ts"
     },

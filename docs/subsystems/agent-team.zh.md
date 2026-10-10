@@ -77,7 +77,7 @@ interface TeamTaskSnapshot {
 
 ## Web 投影
 
-Lead Session 通过 `SessionProjectionMap.agentTeam` 发布持久 roster 行与未删除任务视图。`failure` 在最后有效状态旁报告被拒绝的持久记录。成员活动来自 Session 状态；模型标签来自各成员的 `modelSelection` 投影。
+Lead Session 通过 `SessionProjectionMap.agentTeam` 发布持久 roster 行、未删除任务视图与最近已接受发送的有界时间线。`failure` 在最后有效状态旁报告被拒绝的持久记录。成员活动来自 Session 状态；模型标签来自各成员的 `modelSelection` 投影。
 
 ```ts type-equiv
 /** One durable roster row published through the `agentTeam` Session projection. */
@@ -109,6 +109,29 @@ interface TeamTaskView {
 
 ```ts type-equiv
 /**
+ * Display-oriented summary of one accepted direct-inbox send, retained as the
+ * `plugin:agent-team/message-sent` record in the Lead Session log. `content`
+ * holds the first text block bounded to `timelineContentBytes` UTF-8 bytes;
+ * full content remains in the target inbox.
+ */
+interface TeamMessageSentSnapshot {
+  readonly messageId: MessageId
+  readonly senderId: SessionId
+  readonly senderName: string
+  readonly targetId: SessionId
+  readonly targetName: string
+  readonly content: string
+  readonly truncated: boolean
+}
+```
+
+```ts type-equiv
+/** One recent accepted send published through the `agentTeam` wire view. */
+type TeamTimelineEntry = TeamMessageSentSnapshot
+```
+
+```ts type-equiv
+/**
  * Durable Team state published to browser clients through the Lead Session's
  * `agentTeam` projection. `failure` names the first rejected persisted Team
  * record; members and tasks then stay at the last valid state.
@@ -116,13 +139,15 @@ interface TeamTaskView {
 interface TeamProjection {
   readonly members: TeamMemberProjection[]
   readonly tasks: TeamTaskView[]
+  /** Recent accepted sends in log order; see {@link TeamTimelineEntry}. */
+  readonly timeline: TeamTimelineEntry[]
   readonly failure?: string
 }
 ```
 
 ## 回放
 
-`agentTeam` Session 投影把一个 Root Session 回放成roster、任务板与历史 queued-minus-delivered mailbox。它按 `TeamId` 选取记录，因此普通 fork 继承的 event 保留 ancestor id，绝不会进入新 Root 的状态。Session event 的 `seq` 与 `time` 继续负责顺序和时间记录，Team snapshot 不再重复保存它们。roster 与 task 读取以 view 形式到达调用方，而 pending 邮件不对调用方公开。包 [README](../../packages/experimental/agent-team/README.zh.md)负责 operation、authorization、recovery 和限制行为。
+`agentTeam` Session 投影把一个 Root Session 回放成 roster、任务板、历史 queued-minus-delivered mailbox 与已接受发送摘要。它按 `TeamId` 选取记录，因此普通 fork 继承的 event 保留 ancestor id，绝不会进入新 Root 的状态。Session event 的 `seq` 与 `time` 继续负责顺序和时间记录，Team snapshot 不再重复保存它们。roster 与 task 读取以 view 形式到达调用方，而 pending 邮件不对调用方公开。每条已接受发送都会改变 `sent` 集合，因此 wire 视图会把有界时间线重新发布给每个已连接的浏览器。包 [README](../../packages/experimental/agent-team/README.zh.md)负责 operation、authorization、recovery 和限制行为。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
