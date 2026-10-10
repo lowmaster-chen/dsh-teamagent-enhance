@@ -115,6 +115,8 @@ export interface TeamMemberProjection {
 export interface TeamProjection {
   readonly members: TeamMemberProjection[]
   readonly tasks: TeamTaskView[]
+  /** Recent accepted sends in log order; see {@link TeamTimelineEntry}. */
+  readonly timeline: TeamTimelineEntry[]
   readonly failure?: string
 }
 
@@ -132,6 +134,36 @@ export interface TeamMessageSnapshot {
   readonly senderName: string
   readonly targetId: SessionId
   readonly content: ContentBlock[]
+}
+
+/**
+ * Display-oriented summary of one accepted direct-inbox send, retained as the
+ * `plugin:agent-team/message-sent` record in the Lead Session log. `content`
+ * holds the first text block bounded to `timelineContentBytes` UTF-8 bytes;
+ * full content remains in the target inbox.
+ */
+export interface TeamMessageSentSnapshot {
+  readonly messageId: MessageId
+  readonly senderId: SessionId
+  readonly senderName: string
+  readonly targetId: SessionId
+  readonly targetName: string
+  readonly content: string
+  readonly truncated: boolean
+}
+
+/** One recent accepted send published through the `agentTeam` wire view. */
+export type TeamTimelineEntry = TeamMessageSentSnapshot
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface PluginRecordMap {
+    /** Display summary appended after one direct-inbox Team send is accepted. */
+    'plugin:agent-team/message-sent': {
+      version: 1
+      teamId: TeamId
+      record: TeamMessageSentSnapshot
+    }
+  }
 }
 
 /** Source recorded by a target Session for one historical Team mailbox delivery. */
@@ -159,6 +191,10 @@ export interface Config {
   readonly maxMessageBytes?: number
   /** Maximum milliseconds for shared operation settlement and for each Team child drain. */
   readonly disposalTimeoutMs?: number
+  /** Maximum recent accepted sends published in the wire timeline. */
+  readonly timelineLimit?: number
+  /** Maximum UTF-8 bytes of the first text block retained per timeline entry. */
+  readonly timelineContentBytes?: number
 }
 
 /** Input for creating one durable teammate. */

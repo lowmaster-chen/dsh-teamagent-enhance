@@ -24,6 +24,7 @@ const SIGNAL = new AbortController().signal
 const PERSISTENCE_TEST_TIMEOUT_MS = 15_000
 const roots: string[] = []
 const contexts = new Set<Context>()
+const DEFINITION = teamProjectionDefinition(64)
 
 /** Detached durable Team read through the same projection definition as the service. */
 function durable(agent: Agent): {
@@ -31,8 +32,8 @@ function durable(agent: Agent): {
   tasks: readonly TeamTaskSnapshot[]
   pendingMessages: readonly TeamMessageSnapshot[]
 } {
-  let projected = teamProjectionDefinition.init(agent.session.header)
-  for (const event of agent.session.snapshotEvents()) projected = teamProjectionDefinition.apply(projected, event)
+  let projected = DEFINITION.init(agent.session.header)
+  for (const event of agent.session.snapshotEvents()) projected = DEFINITION.apply(projected, event)
   if (projected.failure !== undefined) throw new Error(projected.failure)
   const state = projected
   return {

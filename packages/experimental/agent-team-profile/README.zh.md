@@ -1,5 +1,5 @@
 ---
-description: "在一个实验性组合包中启用团队协作、工具与 Web 成员和任务看板。"
+description: "在一个实验性组合包中启用团队协作、工具与 Web 成员、任务看板和消息时间线。"
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-agent-team-profile` 让 [Agent Teams](../agent-team/README.zh.md) 的团队协作、工具和 Web 界面通过一个组合包启用。开启后可委派 teammate，并在 Web 中查看成员、任务看板和成员会话。普通 subagent 委派及名称重叠的全局 child control 会被禁用；Workflow 仍可创建 fresh 子代理。本包随 dsh 安装提供，默认关闭，可在插件页开启或添加到已初始化的 profile。
+`dsh-experimental-agent-team-profile` 让 [Agent Teams](../agent-team/README.zh.md) 的团队协作、工具和 Web 界面通过一个组合包启用。开启后可委派 teammate，并在 Web 中查看成员、任务看板、消息时间线和成员会话。普通 subagent 委派及名称重叠的全局 child control 会被禁用；Workflow 仍可创建 fresh 子代理。本包随 dsh 安装提供，默认关闭，可在插件页开启或添加到已初始化的 profile。
 
 ## 目录
 
@@ -48,7 +48,7 @@ dsh plugin --profile web add @deepseek-ai/dsh-experimental-agent-team-profile
 
 本层会添加 Agent Teams domain，以及 Team-scoped 创建、roster、消息、interrupt、等待与任务板工具。直接委派使用支持 fresh 和 fork 上下文的 `spawn_teammate`。`subagent`、`subagent_fork` 工具和名称重叠的全局 child control 均被禁用。Workflow 保留 base profile 的 `spawn` 提供方，底层 Subagent 服务和两个提供方仍供 teammate 与 workflow 使用。
 
-在 Web 和 Desktop 会话中，[Team UI](../client-ui-agent-team/README.zh.md) 显示成员列表与共享任务看板，并可打开成员会话。同一个组合包开关控制工具与浏览器 UI。插件页通过组合包的 `package.json.icon` 声明读取其[图标](icon.svg)，组合包禁用时也会显示。
+在 Web 和 Desktop 会话中，[Team UI](../client-ui-agent-team/README.zh.md) 显示成员列表、共享任务看板与消息时间线，并可打开成员会话。同一个组合包开关控制工具与浏览器 UI。插件页通过组合包的 `package.json.icon` 声明读取其[图标](icon.svg)，组合包禁用时也会显示。
 
 -----
 
@@ -73,9 +73,9 @@ dsh plugin --profile web add @deepseek-ai/dsh-experimental-agent-team-profile
 ## 进一步探索
 
 - [实验性包](../README.zh.md)——孵化状态与发布规则。
-- [Agent Teams service](../agent-team/README.zh.md)——持久 roster 与任务板，以及直接消息行为。
+- [Agent Teams service](../agent-team/README.zh.md)——持久 roster、任务板与消息时间线，以及直接消息行为。
 - [Agent Teams 工具](../tool-agent-team/README.zh.md)——Team-scoped 模型工具表层。
-- [Agent Teams 浏览器 UI](../client-ui-agent-team/README.zh.md)——成员列表、任务看板与成员会话导航。
+- [Agent Teams 浏览器 UI](../client-ui-agent-team/README.zh.md)——成员列表、任务看板、消息时间线与成员会话导航。
 - [Base bundle](../../bundle/base/README.zh.md)——本 patch 扩展的 profile 层。
 
 -----

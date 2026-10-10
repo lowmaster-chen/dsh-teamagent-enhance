@@ -30,6 +30,9 @@ export const zh = {
   'status.pending': '待处理',
   'status.in_progress': '进行中',
   'status.completed': '已完成',
+  timeline: '消息',
+  timelineEmpty: '暂无团队消息',
+  'timeline.truncated': '已截断',
 } satisfies Record<string, string>
 
 /** Agent Teams locale key union. */
@@ -62,4 +65,7 @@ export const en = {
   'status.pending': 'Pending',
   'status.in_progress': 'In progress',
   'status.completed': 'Completed',
+  timeline: 'Messages',
+  timelineEmpty: 'No team messages yet.',
+  'timeline.truncated': 'truncated',
 } satisfies Record<TeamKey, string>

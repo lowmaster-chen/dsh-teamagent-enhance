@@ -3,6 +3,7 @@
 import { Profiler } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   TeamMemberProjection, TeamProjection, TeamTaskId, TeamTaskView as TeamTask,
@@ -42,7 +43,7 @@ const lead: TeamMemberProjection = { id: SESSION, name: 'lead', role: 'lead', ph
 const worker: TeamMemberProjection = {
   id: WORKER, name: 'worker', role: 'teammate', phase: 'active',
 }
-const team: TeamProjection = { members: [lead, worker], tasks: [task] }
+const team: TeamProjection = { members: [lead, worker], tasks: [task], timeline: [] }
 
 type Projections = SessionListState['projectionsBySession']
 
@@ -135,6 +136,7 @@ describe('TeamAction', () => {
     setProjection(b.sessions, SESSION, {
       members: [lead, worker, { id: 'worker-b' as SessionId, name: 'worker-b', role: 'teammate', phase: 'provisioning' }],
       tasks: [task, { ...task, id: TASK_2, subject: 'Pushed task', status: 'pending', ready: true, writeScopeWarnings: [] }],
+      timeline: [],
     })
     expect(screen.getByText('Pushed task')).toBeTruthy()
     expect(screen.getByRole('button', { name: /worker-b/u })).toHaveProperty('disabled', true)
@@ -198,7 +200,7 @@ describe('TeamAction', () => {
     expect(screen.queryByRole('status')).toBeNull()
     setProjectionSnapshot(b.sessions, SESSION, { state: 'idle', error: null, values: {} })
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
-    setProjection(b.sessions, SESSION, { members: [lead], tasks: [] })
+    setProjection(b.sessions, SESSION, { members: [lead], tasks: [], timeline: [] })
     expect(screen.getByText(zh.empty)).toBeTruthy()
   })
 
@@ -232,7 +234,7 @@ describe('TeamAction', () => {
         byId: { ...current.byId, ['unrelated' as SessionId]: summary('unrelated' as SessionId, true) },
         projectionsBySession: {
           ...projectionsBySession,
-          ['unrelated' as SessionId]: { state: 'ready', error: null, values: { agentTeam: { members: [], tasks: [] } } },
+          ['unrelated' as SessionId]: { state: 'ready', error: null, values: { agentTeam: { members: [], tasks: [], timeline: [] } } },
         },
       })
       b.statuses.set(new Map([['unrelated' as SessionId, { running: true, pendingInteraction: undefined, completionUnread: false }]]))
@@ -266,6 +268,40 @@ describe('TeamAction', () => {
     expect(screen.getByText('Implement runtime')).toBeTruthy()
   })
 
+  it('renders the accepted-send timeline with routes, content, and truncation state', () => {
+    const b = bench({
+      projections: {
+        [SESSION]: {
+          state: 'ready', error: null,
+          values: {
+            agentTeam: {
+              ...team,
+              timeline: [
+                {
+                  messageId: 'm-1' as MessageId, senderId: SESSION, senderName: 'lead',
+                  targetId: WORKER, targetName: 'worker', content: 'please review the diff', truncated: false,
+                },
+                {
+                  messageId: 'm-2' as MessageId, senderId: WORKER, senderName: 'worker',
+                  targetId: SESSION, targetName: 'lead', content: 'done, but the summary is long', truncated: true,
+                },
+              ],
+            },
+          },
+        },
+      },
+    })
+    render(<TeamAction {...b.props} />)
+    openPanel()
+    expect(screen.getByText(zh.timeline)).toBeTruthy()
+    expect(screen.getByText('please review the diff')).toBeTruthy()
+    expect(screen.getByText('done, but the summary is long')).toBeTruthy()
+    expect(screen.getByText(zh['timeline.truncated'])).toBeTruthy()
+    const cards = [...document.querySelectorAll('article')]
+    expect(cards[1]?.textContent).toContain('lead → worker')
+    expect(cards[2]?.textContent).toContain('worker → lead')
+  })
+
   it('renders roster/task state variants and reports navigation failures', () => {
     const { ownerName: _ownerName, ...unownedTask } = task
     const b = bench({
@@ -285,6 +321,7 @@ describe('TeamAction', () => {
                 { ...unownedTask, id: 'blocked-task' as TeamTaskId, status: 'pending', ready: false, blockedBy: [TASK_1] },
                 { ...task, id: 'completed-task' as TeamTaskId, status: 'completed', ownerName: 'worker' },
               ],
+              timeline: [],
             },
           },
         },

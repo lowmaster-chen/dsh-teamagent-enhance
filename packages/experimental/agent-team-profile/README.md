@@ -1,5 +1,5 @@
 ---
-description: "Enable team collaboration, tools, and the Web roster and task board with one experimental bundle."
+description: "Enable team collaboration, tools, and the Web roster, task board, and message timeline with one experimental bundle."
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-experimental-agent-team-profile` enables [Agent Teams](../agent-team/README.md) collaboration, tools, and Web UI with one bundle. Delegate work to teammates and view members, shared tasks, and teammate sessions in Web. Ordinary subagent delegation and overlapping global child controls are disabled; Workflow can still create fresh children. The bundle ships with dsh switched off. Enable it from the Plugins page or add it to an initialized profile.
+`dsh-experimental-agent-team-profile` enables [Agent Teams](../agent-team/README.md) collaboration, tools, and Web UI with one bundle. Delegate work to teammates and view members, shared tasks, the message timeline, and teammate sessions in Web. Ordinary subagent delegation and overlapping global child controls are disabled; Workflow can still create fresh children. The bundle ships with dsh switched off. Enable it from the Plugins page or add it to an initialized profile.
 
 ## Table of Contents
 
@@ -48,7 +48,7 @@ In an existing profile’s `package.json`, keep `@deepseek-ai/dsh-experimental-a
 
 The layer adds the Agent Teams domain and its scoped creation, roster, messaging, interruption, waiting, and task-board tools. Direct delegation uses `spawn_teammate`, which supports fresh and fork context. The `subagent` and `subagent_fork` tools and overlapping global child controls are disabled. Workflow retains the base profile’s `spawn` provider, while the underlying Subagent services and both providers remain available to teammates and workflow.
 
-In Web and Desktop conversations, the [Team UI](../client-ui-agent-team/README.md) displays the member roster and shared task board and opens teammate sessions. The same bundle switch controls the tools and browser UI. The Plugins page reads the bundle's [icon](icon.svg) from its `package.json.icon` declaration, including while the bundle is disabled.
+In Web and Desktop conversations, the [Team UI](../client-ui-agent-team/README.md) displays the member roster, shared task board, and message timeline, and opens teammate sessions. The same bundle switch controls the tools and browser UI. The Plugins page reads the bundle's [icon](icon.svg) from its `package.json.icon` declaration, including while the bundle is disabled.
 
 -----
 
@@ -73,9 +73,9 @@ The package's runtime content is [`cordis.patch.yml`](cordis.patch.yml). Applied
 ## Further Exploration
 
 - [Experimental packages](../README.md) — incubation status and publication policy.
-- [Agent Teams service](../agent-team/README.md) — durable roster and task board, plus direct messaging.
+- [Agent Teams service](../agent-team/README.md) — durable roster, task board, and message timeline, plus direct messaging.
 - [Agent Teams tools](../tool-agent-team/README.md) — the Team-scoped model tool surface.
-- [Agent Teams browser UI](../client-ui-agent-team/README.md) — roster, task board, and teammate session navigation.
+- [Agent Teams browser UI](../client-ui-agent-team/README.md) — roster, task board, message timeline, and teammate session navigation.
 - [Base bundle](../../bundle/base/README.md) — the profile layer this patch extends.
 
 -----
