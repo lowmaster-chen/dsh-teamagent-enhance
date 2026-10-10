@@ -4,6 +4,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   TeamMemberProjection,
   TeamTaskView as TeamTask,
+  TeamTimelineEntry,
 } from '@deepseek-ai/dsh-experimental-agent-team/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import {
@@ -175,6 +176,23 @@ function TaskCard({ task, t }: { task: TeamTask; t: TranslateNS<typeof NS> }) {
   )
 }
 
+/** One accepted-send timeline row: sender → target plus the bounded summary. */
+function TimelineRow({ record, t }: { record: TeamTimelineEntry; t: TranslateNS<typeof NS> }) {
+  return (
+    <article className={css.timeline}>
+      <div className={css.timelineTitle}>
+        <span className={css.timelineRoute}>
+          <strong>{record.senderName}</strong>
+          {' → '}
+          <strong>{record.targetName}</strong>
+        </span>
+        {record.truncated && <Tag tone="info">{t('timeline.truncated')}</Tag>}
+      </div>
+      <p className={css.timelineContent}>{record.content}</p>
+    </article>
+  )
+}
+
 /** Render the Team roster and read-only task board. */
 export function TeamAction({
   sessionId, useSession, useSessions, useSessionStatus, openTeammate, t,
@@ -260,7 +278,7 @@ export function TeamAction({
     return () => { document.removeEventListener('keydown', dismiss) }
   }, [open])
 
-  const compact = team !== undefined && team.members.length === 1 && team.tasks.length === 0
+  const compact = team !== undefined && team.members.length === 1 && team.tasks.length === 0 && team.timeline.length === 0
 
   return (
     <div
@@ -343,6 +361,18 @@ export function TeamAction({
                         <h3>{t('tasks')}<span className={css.count}>{team.tasks.length}</span></h3>
                         <div className={css.tasks}>
                           {team.tasks.map(task => <TaskCard key={task.id} task={task} t={t} />)}
+                        </div>
+                      </>
+                    )}
+                </section>
+                <section>
+                  {team.timeline.length === 0
+                    ? <p className={css.emptyNotice}>{t('timelineEmpty')}</p>
+                    : (
+                      <>
+                        <h3>{t('timeline')}<span className={css.count}>{team.timeline.length}</span></h3>
+                        <div className={css.tasks}>
+                          {team.timeline.map(record => <TimelineRow key={record.messageId} record={record} t={t} />)}
                         </div>
                       </>
                     )}
