@@ -3,7 +3,9 @@
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
+import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {
   TeamId,
@@ -20,6 +22,7 @@ import {
   TeamMessageId as toTeamMessageId,
   TeamTaskId as toTeamTaskId,
 } from './types.ts'
+import type { TeamMessageSentSnapshot } from './types.ts'
 import { assertTaskGraphCandidate } from './task-graph.ts'
 import { projectTaskView } from './task-view.ts'
 
@@ -123,6 +126,27 @@ const teamMessageDeliveredEventSchema = z.object({
   targetId: sessionIdSchema,
 }).strict() as z.ZodType<SessionEventMap['team/message/delivered']>
 
+/** Plugin record type retained per accepted direct-inbox send. */
+const TIMELINE_RECORD_TYPE = 'plugin:agent-team/message-sent'
+
+const messageIdSchema = z.string().min(1).transform(value => MessageId(value))
+
+const teamMessageSentSnapshotSchema = z.object({
+  messageId: messageIdSchema,
+  senderId: sessionIdSchema,
+  senderName: z.string(),
+  targetId: sessionIdSchema,
+  targetName: z.string(),
+  content: z.string(),
+  truncated: z.boolean(),
+}).strict() as z.ZodType<TeamMessageSentSnapshot>
+
+const teamMessageSentRecordSchema = z.object({
+  version: z.literal(1),
+  teamId: teamIdSchema,
+  record: teamMessageSentSnapshotSchema,
+}).strict()
+
 /**
  * Current Team state selected by durable Team identity. Every applied Team
  * event produces a new state object and replaces only the collection it
@@ -134,6 +158,8 @@ export interface TeamState {
   readonly tasks: readonly TeamTaskSnapshot[]
   readonly messages: readonly TeamMessageSnapshot[]
   readonly delivered: readonly TeamMessageId[]
+  /** Accepted-send summaries in append order; see {@link TeamMessageSentSnapshot}. */
+  readonly sent: readonly TeamMessageSentSnapshot[]
   readonly nextTaskNumber: number
 }
 
@@ -149,6 +175,7 @@ export function emptyTeamState(rootId: SessionId): TeamProjectionState {
     tasks: [],
     messages: [],
     delivered: [],
+    sent: [],
     nextTaskNumber: 1,
   }
 }
@@ -170,6 +197,7 @@ const teamProjectionEntrySchema = z.object({
   tasks: z.array(teamTaskSnapshotSchema),
   messages: z.array(teamMessageSnapshotSchema),
   delivered: z.array(teamMessageIdSchema),
+  sent: z.array(teamMessageSentSnapshotSchema),
   nextTaskNumber: positiveSafeInteger,
   failure: z.string().optional(),
 }).strict() as z.ZodType<TeamProjectionState>
@@ -197,7 +225,7 @@ export function isTeamEvent(event: SessionEvent): event is TeamSessionEvent {
 }
 
 /** Decode one persisted Team value and retain the schema failure as its cause. */
-function parsePersisted<T>(type: TeamEventType, schema: z.ZodType<T>, value: unknown): T {
+function parsePersisted<T>(type: string, schema: z.ZodType<T>, value: unknown): T {
   try {
     return schema.parse(value)
   } catch (error: unknown) {
@@ -224,6 +252,8 @@ function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
 
 function applyProjectionEvent(state: TeamProjectionState, event: SessionEvent): TeamProjectionState {
   if (state.failure !== undefined) return state
+  const plugin = pluginRecordOf(event)
+  if (plugin?.type === TIMELINE_RECORD_TYPE) return applyTimelineRecord(state, plugin.data)
   if (!isTeamEvent(event)) return state
   try {
     const selector = parsePersisted(event.type, teamEventSelectorSchema, event.data)
@@ -234,6 +264,25 @@ function applyProjectionEvent(state: TeamProjectionState, event: SessionEvent): 
     return applyCurrentTeamEvent(state, parseCurrentTeamEvent(event))
   } catch (error: unknown) {
     /* v8 ignore next -- the owned Team transition throws Error instances. */
+    return { ...state, failure: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Apply one accepted-send summary record selected by its Team identity. */
+function applyTimelineRecord(state: TeamProjectionState, data: unknown): TeamProjectionState {
+  try {
+    const selector = parsePersisted(TIMELINE_RECORD_TYPE, teamEventSelectorSchema, data)
+    if (selector.teamId !== state.id) return state
+    if (selector.version !== 1) {
+      throw new Error(`unsupported Agent Teams timeline version ${String(selector.version)}`)
+    }
+    const payload = parsePersisted(TIMELINE_RECORD_TYPE, teamMessageSentRecordSchema, data)
+    if (state.sent.some(record => record.messageId === payload.record.messageId)) {
+      throw new Error(`team message "${payload.record.messageId}" was recorded twice`)
+    }
+    return { ...state, sent: [...state.sent, payload.record] }
+  } catch (error: unknown) {
+    /* v8 ignore next -- the owned timeline transition throws Error instances. */
     return { ...state, failure: error instanceof Error ? error.message : String(error) }
   }
 }
@@ -330,16 +379,30 @@ const teamTaskViewSchema = z.object({
   writeScopeWarnings: z.array(z.string()),
 }).strict() as z.ZodType<TeamTaskView>
 
+const teamTimelineEntrySchema = z.object({
+  messageId: messageIdSchema,
+  senderId: sessionIdSchema,
+  senderName: z.string(),
+  targetId: sessionIdSchema,
+  targetName: z.string(),
+  content: z.string(),
+  truncated: z.boolean(),
+}).strict() as z.ZodType<TeamMessageSentSnapshot>
+
 const teamProjectionSchema = z.object({
   members: z.array(teamMemberProjectionSchema),
   tasks: z.array(teamTaskViewSchema),
+  timeline: z.array(teamTimelineEntrySchema),
   failure: z.string().optional(),
 }).strict() as z.ZodType<TeamProjection>
 
-/** Client views keyed by the member and task collections they were derived from. */
-const teamProjectionViews = new WeakMap<readonly TeamMemberSnapshot[], WeakMap<readonly TeamTaskSnapshot[], TeamProjection>>()
+/** Client views keyed by the member, task, and sent collections they were derived from. */
+const teamProjectionViews = new WeakMap<
+  readonly TeamMemberSnapshot[],
+  WeakMap<readonly TeamTaskSnapshot[], WeakMap<readonly TeamMessageSentSnapshot[], TeamProjection>>
+>()
 
-function buildTeamProjection(state: TeamProjectionState): TeamProjection {
+function buildTeamProjection(state: TeamProjectionState, timelineLimit: number): TeamProjection {
   const rootId = brandString<SessionId>(state.id)
   const members: TeamMemberProjection[] = [{ id: rootId, name: 'lead', role: 'lead', phase: 'active' }]
   for (const member of state.members) {
@@ -356,39 +419,49 @@ function buildTeamProjection(state: TeamProjectionState): TeamProjection {
     tasks: state.tasks
       .filter(task => task.status !== 'deleted')
       .map(task => projectTaskView(state, task)),
+    timeline: state.sent.slice(-timelineLimit),
     ...state.failure === undefined ? {} : { failure: state.failure },
   }
 }
 
 /**
- * Durable client view of one Team state. Mailbox-only state changes reuse the
- * previous view reference, so the live drive publishes nothing for them.
- * A failure is terminal: later events retain the failed state reference and
- * do not republish its view.
+ * Durable client view of one Team state. Roster-only or task-only changes
+ * reuse the previous view reference, so the live drive publishes nothing for
+ * them; each accepted send changes the `sent` reference and republishes the
+ * bounded timeline. A failure is terminal: later events retain the failed
+ * state reference and do not republish its view.
  * @param state - current Team state.
- * @returns the roster and non-deleted task board, plus any projection failure.
+ * @param timelineLimit - maximum accepted-send entries in the view.
+ * @returns the roster, non-deleted task board, recent timeline, and any projection failure.
  */
-export function teamProjectionView(state: TeamProjectionState): TeamProjection {
-  if (state.failure !== undefined) return buildTeamProjection(state)
+export function teamProjectionView(state: TeamProjectionState, timelineLimit: number): TeamProjection {
+  if (state.failure !== undefined) return buildTeamProjection(state, timelineLimit)
   let byTasks = teamProjectionViews.get(state.members)
   if (byTasks === undefined) {
     byTasks = new WeakMap()
     teamProjectionViews.set(state.members, byTasks)
   }
-  let view = byTasks.get(state.tasks)
+  let bySent = byTasks.get(state.tasks)
+  if (bySent === undefined) {
+    bySent = new WeakMap()
+    byTasks.set(state.tasks, bySent)
+  }
+  let view = bySent.get(state.sent)
   if (view === undefined) {
-    view = buildTeamProjection(state)
-    byTasks.set(state.tasks, view)
+    view = buildTeamProjection(state, timelineLimit)
+    bySent.set(state.sent, view)
   }
   return view
 }
 
-/** Team projection selected by the projected Session identity; the wire view carries durable roster and task state only. */
-export const teamProjectionDefinition = {
-  key: 'agentTeam',
-  stateVersion: 4,
-  stateSchema: teamProjectionEntrySchema,
-  init: header => emptyTeamState(header.id),
-  apply: applyProjectionEvent,
-  wire: { viewSchema: teamProjectionSchema, view: teamProjectionView },
-} satisfies ProjectionDefinition<'agentTeam', TeamProjectionState>
+/** Team projection selected by the projected Session identity; the wire view carries durable roster, task, and timeline state. */
+export function teamProjectionDefinition(timelineLimit: number) {
+  return {
+    key: 'agentTeam',
+    stateVersion: 5,
+    stateSchema: teamProjectionEntrySchema,
+    init: header => emptyTeamState(header.id),
+    apply: applyProjectionEvent,
+    wire: { viewSchema: teamProjectionSchema, view: (state: TeamProjectionState) => teamProjectionView(state, timelineLimit) },
+  } satisfies ProjectionDefinition<'agentTeam', TeamProjectionState>
+}

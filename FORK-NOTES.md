@@ -4,7 +4,7 @@ Personal enhancement fork of [deepseek-ai/deepseek-harness](https://github.com/d
 
 ## Enhancement 1: Agent Teams mailbox timeline
 
-Status: in progress (branch `enhance/mailbox-timeline`)
+Status: implemented (branch `enhance/mailbox-timeline`); typecheck/lint/build verification in progress
 
 ### Problem
 
@@ -30,10 +30,12 @@ Upstream `0.2.1` moved Team messaging to the direct-inbox model: `send_message` 
 
 ### Verification
 
-- `pnpm run test` filtered to `packages/experimental/agent-team` and `packages/experimental/client-ui-agent-team`
-- `pnpm run typecheck`, `pnpm run lint`, `pnpm run build` for the touched packages
+- `vitest` for `packages/experimental/agent-team` + `client-ui-agent-team`: 112 passed (includes 7 new timeline tests)
+- `vitest` for `packages/experimental/tool-agent-team`: 29 passed (unchanged)
+- `oxlint` on both touched packages: clean
+- `tsc -b tsconfig.host.json`: clean; `tsdown --config-loader native --env.DSH_BUILD_FACE host`: clean; `tsc -b tsconfig.client.json`: clean (official build order)
+- Keyless recorded-session snapshots replay on macOS/Linux only; no existing snapshot pins the `agentTeam` wire view. A new snapshot case for the timeline wire would be CI-owned upstream.
 - Manual session walk-through recorded in the commit message
-- Keyless recorded-session snapshots replay on macOS/Linux only; noted here, CI-owned upstream
 
 ### File map
 

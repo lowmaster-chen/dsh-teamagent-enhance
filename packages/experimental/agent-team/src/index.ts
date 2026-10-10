@@ -3,7 +3,11 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { appendPluginRecord } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { TeamActivity } from './activity.ts'
@@ -43,6 +47,8 @@ const DEFAULT_MAX_MEMBERS = 16
 const DEFAULT_MAX_TASKS = 256
 const DEFAULT_MAX_MESSAGE_BYTES = 65_536
 const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
+const DEFAULT_TIMELINE_LIMIT = 64
+const DEFAULT_TIMELINE_CONTENT_BYTES = 1_024
 
 /** Validate one positive safe-integer deployment limit. */
 function positiveLimit(name: string, value: number): number {
@@ -50,6 +56,24 @@ function positiveLimit(name: string, value: number): number {
     throw new TeamError(`${name} must be a positive safe integer`, 'TEAM_INVALID_CONFIG')
   }
   return value
+}
+
+/**
+ * Bound one text to a UTF-8 byte budget without splitting a surrogate pair.
+ * @param text - complete source text.
+ * @param maxBytes - UTF-8 byte budget.
+ * @returns the longest prefix within the budget and whether text was cut.
+ */
+export function truncateUtf8(text: string, maxBytes: number): { text: string; truncated: boolean } {
+  let bytes = 0
+  let kept = ''
+  for (const char of text) {
+    const size = Buffer.byteLength(char, 'utf8')
+    if (bytes + size > maxBytes) return { text: kept, truncated: true }
+    bytes += size
+    kept += char
+  }
+  return { text: kept, truncated: false }
 }
 
 /** Agent Teams service backed by the exact live Lead Session log. */
@@ -61,6 +85,8 @@ export class TeamService extends Service {
     maxTasks: z.number().step(1).min(1).default(DEFAULT_MAX_TASKS),
     maxMessageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_MESSAGE_BYTES),
     disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
+    timelineLimit: z.number().step(1).min(1).default(DEFAULT_TIMELINE_LIMIT),
+    timelineContentBytes: z.number().step(1).min(1).default(DEFAULT_TIMELINE_CONTENT_BYTES),
   })
 
   /** Validated deployment limits used by every Team operation. */
@@ -82,6 +108,11 @@ export class TeamService extends Service {
         'disposalTimeoutMs',
         config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
       ),
+      timelineLimit: positiveLimit('timelineLimit', config.timelineLimit ?? DEFAULT_TIMELINE_LIMIT),
+      timelineContentBytes: positiveLimit(
+        'timelineContentBytes',
+        config.timelineContentBytes ?? DEFAULT_TIMELINE_CONTENT_BYTES,
+      ),
     }
 
     this.activity = new TeamActivity()
@@ -96,7 +127,7 @@ export class TeamService extends Service {
       if (membership !== undefined) this.activity.notify(membership.id)
     })
     ctx.effect(() => {
-      const disposeProjection = ctx.root.sessionProjections.register(teamProjectionDefinition)
+      const disposeProjection = ctx.root.sessionProjections.register(teamProjectionDefinition(this.config.timelineLimit))
       return async () => {
         try {
           await this.disposeRuntime()
@@ -243,8 +274,48 @@ export class TeamService extends Service {
     } else {
       messageId = await steerHostSubagentPrompt(this.ctx.subagents, root, target.id, content, source, request.signal)
     }
+    this.recordSend(caller, membership, target, messageId, request.content)
     this.activity.notify(membership.id)
     return { messageId }
+  }
+
+  /**
+   * Retain one display summary after an accepted send. Best effort: an
+   * already-accepted send succeeds even when the record append fails, which
+   * leaves a timeline gap without affecting the message. Record durability
+   * follows ordinary Session persistence, like the direct-inbox acceptance.
+   * @param caller - exact live sending Team member.
+   * @param membership - resolved sender membership.
+   * @param target - resolved durable target identity.
+   * @param messageId - accepted inbox identity.
+   * @param content - sender content without the delivery frame.
+   */
+  private recordSend(
+    caller: Agent,
+    membership: TeamMembership,
+    target: { id: SessionId; name: string },
+    messageId: MessageId,
+    content: ContentBlock[],
+  ): void {
+    try {
+      const firstText = content.find(block => block.type === 'text')
+      const summary = truncateUtf8(firstText?.type === 'text' ? firstText.text : '', this.config.timelineContentBytes)
+      appendPluginRecord(membership.root.session, 'plugin:agent-team/message-sent', {
+        version: 1,
+        teamId: membership.id,
+        record: {
+          messageId,
+          senderId: caller.id,
+          senderName: membership.name,
+          targetId: target.id,
+          targetName: target.name,
+          content: summary.text,
+          truncated: summary.truncated,
+        },
+      })
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`Agent Teams timeline record failed: ${errorMessage(error)}`)
+    }
   }
 
   /** Queue one contained provisioning reconciliation after publication has unwound. */

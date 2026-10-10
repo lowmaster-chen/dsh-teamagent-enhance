@@ -8,4 +8,5 @@ export type {
   TeamTaskId,
   TeamTaskStatus,
   TeamTaskView,
+  TeamTimelineEntry,
 } from './types.ts'

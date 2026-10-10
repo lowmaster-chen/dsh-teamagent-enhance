@@ -7,7 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionLogOffset, SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionLogOffset, SessionId, pluginRecordOf, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
@@ -18,12 +18,13 @@ import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/w
 import TeamService, { TeamError, TeamId, TeamMessageId, TeamTaskId } from '../src/index.ts'
 import { TeamRuntimeLifecycle } from '../src/lifecycle.ts'
 import { teamProjectionDefinition } from '../src/projection.ts'
-import type { TeamMemberSnapshot, TeamMessageSnapshot, TeamTaskSnapshot } from '../src/index.ts'
+import type { TeamMemberSnapshot, TeamMessageSentSnapshot, TeamMessageSnapshot, TeamTaskSnapshot } from '../src/index.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 
 const SIGNAL = new AbortController().signal
 const roots: string[] = []
 const contexts: Context[] = []
+const DEFINITION = teamProjectionDefinition(64)
 
 afterEach(async () => {
   vi.useRealTimers()
@@ -37,15 +38,17 @@ function durable(agent: Agent): {
   members: readonly TeamMemberSnapshot[]
   tasks: readonly TeamTaskSnapshot[]
   pendingMessages: readonly TeamMessageSnapshot[]
+  sent: readonly TeamMessageSentSnapshot[]
 } {
-  let projected = teamProjectionDefinition.init(agent.session.header)
-  for (const event of agent.session.snapshotEvents()) projected = teamProjectionDefinition.apply(projected, event)
+  let projected = DEFINITION.init(agent.session.header)
+  for (const event of agent.session.snapshotEvents()) projected = DEFINITION.apply(projected, event)
   if (projected.failure !== undefined) throw new Error(projected.failure)
   const state = projected
   return {
     members: state.members,
     tasks: state.tasks,
     pendingMessages: state.messages.filter(message => !state.delivered.includes(message.id)),
+    sent: state.sent,
   }
 }
 
@@ -150,7 +153,7 @@ describe('Team identity and provisioning', () => {
     ))
     expect(() => journal.state(first.lead)).toThrow('Agent Teams projection is not registered')
     stateOfSpy.mockImplementation((session, key) => key === 'agentTeam'
-      ? { ...teamProjectionDefinition.init(session.header), failure: 'failed Team projection' }
+      ? { ...DEFINITION.init(session.header), failure: 'failed Team projection' }
       : stateOf(session, key))
     expect(() => journal.state(first.lead)).toThrow('failed Team projection')
     stateOfSpy.mockRestore()
@@ -908,6 +911,48 @@ describe('Team direct messages and waiting', () => {
     await teamFiber.dispose()
     lead.cancel({ kind: 'parent' })
     await lead.whenIdle()
+  })
+
+  it('retains a display summary per accepted send', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const target = await waitRunning(ctx, (await spawn(ctx, lead, 'target')).member.id)
+    const receipt = await ctx.agentTeams.sendMessage(lead, { target: 'target', content: content('please review the diff'), signal: SIGNAL })
+    await ctx.sessions.flush(lead.session)
+    const records = lead.session.snapshotEvents().flatMap((event) => {
+      const record = pluginRecordOf(event)
+      return record?.type === 'plugin:agent-team/message-sent' ? [record] : []
+    })
+    expect(records).toHaveLength(1)
+    expect(records[0]?.data).toMatchObject({
+      version: 1,
+      teamId: lead.id,
+      record: {
+        messageId: receipt.messageId,
+        senderId: lead.id,
+        senderName: 'lead',
+        targetId: target.id,
+        targetName: 'target',
+        content: 'please review the diff',
+        truncated: false,
+      },
+    })
+    expect(durable(lead).sent).toMatchObject([{ senderName: 'lead', targetName: 'target' }])
+  })
+
+  it('bounds the retained summary to the configured byte budget without splitting surrogate pairs', async () => {
+    const { ctx, lead } = await setup(['hang'], { timelineContentBytes: 5 })
+    await waitRunning(ctx, (await spawn(ctx, lead, 'target')).member.id)
+    await ctx.agentTeams.sendMessage(lead, { target: 'target', content: content('中文消息'), signal: SIGNAL })
+    await ctx.sessions.flush(lead.session)
+    const records = lead.session.snapshotEvents().flatMap((event) => {
+      const record = pluginRecordOf(event)
+      return record?.type === 'plugin:agent-team/message-sent' ? [record] : []
+    })
+    expect(records).toHaveLength(1)
+    const record = (records[0]!.data as { record: { content: string; truncated: boolean } }).record
+    expect(Buffer.byteLength(record.content, 'utf8')).toBeLessThanOrEqual(5)
+    expect(record.content).toBe('中')
+    expect(record.truncated).toBe(true)
   })
 
   it('steers an idle Lead and cold-resumes a sibling with actual sender attribution', async () => {
